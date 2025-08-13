@@ -1,9 +1,20 @@
+
 // utils/openrouter.js
-require('dotenv').config(); // Загружаем переменные окружения
+require('dotenv').config();
 
 const API_KEY = process.env.OPENROUTER_API_KEY;
 const API_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "qwen/qwen3-8b:free"; // Вы можете выбрать другую модель
+const MODEL = "qwen3/qwen3-8b:free";
+
+/**
+ * Пользовательская ошибка для превышения лимита запросов.
+ */
+class RateLimitError extends Error {
+  constructor(message = "Превышен лимит запросов к модели ИИ. Пожалуйста, попробуйте позже.") {
+    super(message);
+    this.name = "RateLimitError";
+  }
+}
 
 /**
  * Вызывает OpenRouter API для генерации текста.
@@ -21,8 +32,7 @@ async function callOpenRouter(prompt) {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${API_KEY}`,
-      // Используем заголовки из переменных окружения Vercel или значения по умолчанию
-      "HTTP-Referer": process.env['VERCEL_URL'] ? `https://${process.env['VERCEL_URL']}` : "https://elara-mystery-frontend.vercel.app", // Замените на ваш фронтенд
+      "HTTP-Referer": process.env['VERCEL_URL'] ? `https://${process.env['VERCEL_URL']}` : "https://elara-mystery-frontend.vercel.app",
       "X-Title": "Elara Mystery Game",
       "Content-Type": "application/json"
     },
@@ -38,6 +48,22 @@ async function callOpenRouter(prompt) {
 
   if (!response.ok) {
     const errorText = await response.text();
+    
+    // --- НОВОЕ: Специальная обработка 429 ---
+    if (response.status === 429) {
+      console.error("<- Ошибка 429 от OpenRouter: Лимит запросов превышен.");
+      // Можно дополнительно распарсить JSON, если он есть, для получения деталей
+      try {
+        const errorData = JSON.parse(errorText);
+        const errorMsg = errorData?.error?.message || "Слишком много запросов. Пожалуйста, попробуйте позже.";
+        throw new RateLimitError(errorMsg);
+      } catch (e) {
+        // Если не JSON, используем общий текст
+        throw new RateLimitError("Слишком много запросов. Пожалуйста, попробуйте позже.");
+      }
+    }
+    // --- КОНЕЦ НОВОГО ---
+    
     console.error(`<- Ошибка от OpenRouter API: ${response.status} - ${errorText}`);
     throw new Error(`OpenRouter API ошибка: ${response.status} - ${errorText}`);
   }
@@ -53,4 +79,4 @@ async function callOpenRouter(prompt) {
   return aiResponse;
 }
 
-module.exports = { callOpenRouter };
+module.exports = { callOpenRouter, RateLimitError };
